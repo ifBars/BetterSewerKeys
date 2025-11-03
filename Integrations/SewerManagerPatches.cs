@@ -2,17 +2,18 @@
 using ScheduleOne.Map;
 using ScheduleOne.DevUtilities;
 using ScheduleOne.NPCs;
+using ScheduleOne.PlayerScripts;
 using FishNet.Connection;
+using ScheduleOne.Doors;
 #else
 using Il2CppScheduleOne.Map;
 using Il2CppScheduleOne.DevUtilities;
-using Il2CppScheduleOne.NPCs;
+using Il2CppScheduleOne.PlayerScripts;
 using Il2CppFishNet.Connection;
+using Il2CppScheduleOne.Doors;
 #endif
 using HarmonyLib;
 using BetterSewerKeys.Utils;
-using System.Collections.Generic;
-using UnityEngine;
 
 namespace BetterSewerKeys.Integrations
 {
@@ -49,8 +50,7 @@ namespace BetterSewerKeys.Integrations
         }
 
         /// <summary>
-        /// Patch SetSewerUnlocked_Server to unlock only a specific entrance
-        /// We need to detect which entrance triggered this and unlock only that one
+        /// Patch SetSewerUnlocked_Server to unlock only the specific entrance that was interacted with
         /// </summary>
         [HarmonyPatch(typeof(SewerManager), "SetSewerUnlocked_Server")]
         [HarmonyPrefix]
@@ -58,18 +58,62 @@ namespace BetterSewerKeys.Integrations
         {
             try
             {
-                // Try to find which entrance triggered this unlock
-                // We'll check all doors and find the one that was just interacted with
                 var manager = BetterSewerKeysManager.Instance;
                 if (manager == null)
                 {
                     return true; // Let original method run
                 }
 
-                // Find the entrance ID for the door that was just interacted with
-                // Since we can't directly track which door called this, we'll unlock the first locked entrance
-                // This is a limitation, but in practice the door controller patch handles this correctly
-                int entranceID = manager.GetFirstLockedEntranceID();
+                // Get the last interacted door from SewerDoorControllerPatches
+                var lastInteractedDoorField = typeof(SewerDoorControllerPatches)
+                    .GetField("_lastInteractedDoor", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                
+                SewerDoorController? lastInteractedDoor = null;
+                if (lastInteractedDoorField != null)
+                {
+                    lastInteractedDoor = lastInteractedDoorField.GetValue(null) as SewerDoorController;
+                }
+
+                int entranceID = -1;
+                
+                if (lastInteractedDoor != null)
+                {
+                    // Get entrance ID from the door
+                    var getEntranceIDMethod = typeof(SewerDoorControllerPatches)
+                        .GetMethod("GetEntranceID", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+                    
+                    if (getEntranceIDMethod != null)
+                    {
+                        entranceID = (int)getEntranceIDMethod.Invoke(null, new object[] { lastInteractedDoor });
+                        
+                        // Check if this entrance is already unlocked - if so, don't unlock anything
+                        if (entranceID != -1 && manager.IsEntranceUnlocked(entranceID))
+                        {
+                            ModLogger.Debug($"SetSewerUnlocked_Server: Entrance {entranceID} already unlocked, skipping unlock");
+                            // Don't unlock anything, but also don't call original method
+                            // We need to restore the key that was consumed
+                            var playerInventory = PlayerSingleton<PlayerInventory>.Instance;
+                            if (playerInventory != null)
+                            {
+                                playerInventory.AddItemToInventory(__instance.SewerKeyItem.GetDefaultInstance());
+                                ModLogger.Debug($"SetSewerUnlocked_Server: Restored key to player inventory");
+                            }
+                            return false; // Skip original method
+                        }
+                    }
+                }
+
+                // If we couldn't get entrance ID from door, fall back to first locked entrance
+                if (entranceID == -1)
+                {
+                    entranceID = manager.GetFirstLockedEntranceID();
+                    if (entranceID == -1)
+                    {
+                        // All entrances unlocked, let original method handle
+                        return true;
+                    }
+                    ModLogger.Debug($"SetSewerUnlocked_Server: Could not determine entrance ID from door, using first locked entrance: {entranceID}");
+                }
                 
                 if (entranceID != -1)
                 {
@@ -231,7 +275,59 @@ namespace BetterSewerKeys.Integrations
         }
 
         /// <summary>
+        /// Patch Load to prevent IsRandomWorldKeyCollected from being set to true until all entrances are unlocked
+        /// </summary>
+        [HarmonyPatch(typeof(SewerManager), "Load")]
+        [HarmonyPostfix]
+        public static void SewerManager_Load_Postfix(SewerManager __instance)
+        {
+            try
+            {
+                var manager = BetterSewerKeysManager.Instance;
+                if (manager != null && !manager.AreAllEntrancesUnlocked())
+                {
+                    // Force IsRandomWorldKeyCollected to false if not all entrances are unlocked
+                    // Use reflection to set the private field
+                    var field = typeof(SewerManager).GetField("IsRandomWorldKeyCollected", 
+                        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
+                    
+                    if (field != null)
+                    {
+                        field.SetValue(__instance, false);
+                        ModLogger.Debug("SewerManager.Load: Forced IsRandomWorldKeyCollected to false (not all entrances unlocked)");
+                    }
+                    
+                    // Re-enable pickup if needed
+                    if (__instance.RandomWorldSewerKeyPickup != null && !__instance.RandomWorldSewerKeyPickup.gameObject.activeSelf)
+                    {
+                        var saveData = manager.GetSaveData();
+                        if (saveData != null)
+                        {
+                            // Find an entrance that hasn't had its key collected yet
+                            int entranceID = manager.GetFirstLockedEntranceID();
+                            if (entranceID != -1)
+                            {
+                                int locationIndex = saveData.GetKeyLocationIndex(entranceID);
+                                if (locationIndex >= 0 && locationIndex < __instance.RandomSewerKeyLocations.Length)
+                                {
+                                    __instance.SetSewerKeyLocation(null, locationIndex);
+                                    __instance.RandomWorldSewerKeyPickup.gameObject.SetActive(true);
+                                    ModLogger.Debug($"SewerManager.Load: Re-enabled key pickup for entrance {entranceID}");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch (System.Exception ex)
+            {
+                ModLogger.Error("Error in SewerManager.Load postfix", ex);
+            }
+        }
+
+        /// <summary>
         /// Patch SetRandomWorldKeyCollected to track per-entrance world key collection
+        /// and prevent base game from marking it as collected until all entrances are unlocked
         /// </summary>
         [HarmonyPatch(typeof(SewerManager), "SetRandomWorldKeyCollected")]
         [HarmonyPrefix]
@@ -257,9 +353,20 @@ namespace BetterSewerKeys.Integrations
                             break;
                         }
                     }
+
+                    // Check if all entrances are unlocked - if not, prevent base game from marking as collected
+                    if (!manager.AreAllEntrancesUnlocked())
+                    {
+                        // Don't let base game mark as collected - we'll handle pickup deactivation ourselves
+                        // We'll re-enable it on day pass if needed
+                        __instance.RandomWorldSewerKeyPickup.gameObject.SetActive(false);
+                        
+                        // Don't call original method - we've handled it
+                        return false;
+                    }
                 }
                 
-                // Let original method run to handle pickup deactivation
+                // All entrances unlocked, let original method run to handle pickup deactivation
                 return true;
             }
             catch (System.Exception ex)

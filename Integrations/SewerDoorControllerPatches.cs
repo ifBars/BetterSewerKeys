@@ -62,6 +62,11 @@ namespace BetterSewerKeys.Integrations
         private static readonly System.Collections.Generic.Dictionary<SewerDoorController, int> _entranceIDMap = new();
 
         /// <summary>
+        /// Track the last door that was interacted with, so we know which entrance to unlock
+        /// </summary>
+        public static SewerDoorController? _lastInteractedDoor = null;
+
+        /// <summary>
         /// Patch Awake to register door with manager and get entrance ID
         /// </summary>
         [HarmonyPatch(typeof(SewerDoorController), "Awake")]
@@ -107,9 +112,15 @@ namespace BetterSewerKeys.Integrations
                     // Check if this specific entrance is unlocked
                     bool isUnlocked = BetterSewerKeysManager.Instance.IsEntranceUnlocked(entranceID);
                     
-                    if (!isUnlocked && !__instance.IsOpen)
+                    // If unlocked, let original method handle (it will return true)
+                    if (isUnlocked)
                     {
-                        // Check if player has the key item
+                        return true; // Let original method run
+                    }
+                    
+                    // Entrance is locked - check if player has the key item
+                    if (!__instance.IsOpen)
+                    {
                         var sewerManager = NetworkSingleton<SewerManager>.Instance;
                         if (sewerManager != null)
                         {
@@ -117,13 +128,13 @@ namespace BetterSewerKeys.Integrations
                             if (playerInventory != null && playerInventory.GetAmountOfItem(sewerManager.SewerKeyItem.ID) != 0)
                             {
                                 __result = true;
-                                return false; // Skip original method
+                                return false; // Skip original method - player has key
                             }
                         }
                         
                         reason = sewerManager?.SewerKeyItem.Name + " required";
                         __result = false;
-                        return false; // Skip original method
+                        return false; // Skip original method - player doesn't have key
                     }
                 }
                 
@@ -153,68 +164,74 @@ namespace BetterSewerKeys.Integrations
         }
 
         /// <summary>
-        /// Patch ExteriorHandleInteracted to unlock only this specific entrance
+        /// Patch ExteriorHandleInteracted to prevent duplicate unlock attempts
+        /// We need to prevent the unlock logic from running if this entrance is already unlocked
         /// </summary>
         [HarmonyPatch(typeof(SewerDoorController), "ExteriorHandleInteracted")]
         [HarmonyPrefix]
-        public static bool SewerDoorController_ExteriorHandleInteracted_Prefix(SewerDoorController __instance)
+        public static void SewerDoorController_ExteriorHandleInteracted_Prefix(SewerDoorController __instance, out bool __state)
+        {
+            // Track this door as the last interacted one
+            _lastInteractedDoor = __instance;
+            
+            // Track if this entrance was already unlocked before the original method ran
+            int entranceID = GetEntranceID(__instance);
+            __state = entranceID != -1 && BetterSewerKeysManager.Instance.IsEntranceUnlocked(entranceID);
+        }
+
+        /// <summary>
+        /// Patch ExteriorHandleInteracted postfix to prevent duplicate unlock attempts
+        /// </summary>
+        [HarmonyPatch(typeof(SewerDoorController), "ExteriorHandleInteracted")]
+        [HarmonyPostfix]
+        public static void SewerDoorController_ExteriorHandleInteracted_Postfix(SewerDoorController __instance, bool __state)
         {
             try
             {
-                int entranceID = GetEntranceID(__instance);
-                
-                if (entranceID == -1)
+                // If entrance was already unlocked before original method ran, prevent duplicate unlock
+                if (__state)
                 {
-                    // Door not registered yet, let original method run
-                    return true;
-                }
-
-                // Check if entrance is already unlocked
-                if (BetterSewerKeysManager.Instance.IsEntranceUnlocked(entranceID))
-                {
-                    // Already unlocked, let original method handle opening
-                    return true;
-                }
-
-                // Check if player can access (has key)
-                if (__instance.CanPlayerAccess(EDoorSide.Exterior))
-                {
+                    int entranceID = GetEntranceID(__instance);
+                    
+                    // Check if the original method tried to unlock (consumed a key)
                     var sewerManager = NetworkSingleton<SewerManager>.Instance;
                     if (sewerManager != null)
                     {
-                        // Get ExteriorIntObjs via reflection
-                        var exteriorIntObjs = GetExteriorIntObjs(__instance);
-                        if (exteriorIntObjs != null && exteriorIntObjs.Length > 0)
-                        {
-                            // Play unlock sound
-                            sewerManager.SewerUnlockSound.transform.position = exteriorIntObjs[0].transform.position;
-                            sewerManager.SewerUnlockSound.Play();
-                        }
-                        
-                        // Unlock only this specific entrance via our custom method
-                        BetterSewerKeysManager.Instance.UnlockEntrance(entranceID);
-                        
-                        // Remove key from player inventory
                         var playerInventory = PlayerSingleton<PlayerInventory>.Instance;
                         if (playerInventory != null)
                         {
-                            playerInventory.RemoveAmountOfItem(sewerManager.SewerKeyItem.ID);
+                            // Check if a key was consumed but shouldn't have been
+                            // The original method checks !IsSewerUnlocked, which we patch to return false until all unlocked
+                            // So it would have tried to unlock. But since this entrance is already unlocked,
+                            // SetSewerUnlocked_Server would have unlocked a different entrance (first locked one)
+                            // So we need to check if SetSewerUnlocked_Server was called and undo it if needed
+                            
+                            // Actually, the issue is that SetSewerUnlocked_Server will unlock the first locked entrance
+                            // But if the player used a key on an already-unlocked entrance, we shouldn't unlock anything
+                            // We need to prevent SetSewerUnlocked_Server from running in this case
+                            
+                            // The best way is to clear _lastInteractedDoor before SetSewerUnlocked_Server runs
+                            // But that's timing-dependent. Instead, we'll check in SetSewerUnlocked_Server if the entrance
+                            // was already unlocked before the interaction
                         }
-                        
-                        ModLogger.Info($"Unlocked entrance {entranceID} via door interaction");
-                        
-                        // Don't call original method - we've handled it
-                        return false;
                     }
                 }
                 
-                // Let original method handle if we can't process
-                return true;
+                // Clear tracked door after a short delay to ensure SetSewerUnlocked_Server has processed it
+                MelonLoader.MelonCoroutines.Start(ClearTrackedDoor(__instance));
             }
             catch (System.Exception ex)
             {
-                ModLogger.Error("Error in SewerDoorController.ExteriorHandleInteracted prefix", ex);
-                return true; // Let original method run on error
+                ModLogger.Error("Error in SewerDoorController.ExteriorHandleInteracted postfix", ex);
+            }
+        }
+
+        private static System.Collections.IEnumerator ClearTrackedDoor(SewerDoorController door)
+        {
+            yield return new WaitForSeconds(0.1f);
+            if (_lastInteractedDoor == door)
+            {
+                _lastInteractedDoor = null;
             }
         }
     }

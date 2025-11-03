@@ -1,8 +1,8 @@
-using System.Collections.Generic;
 using S1API.Internal.Abstraction;
 using S1API.Saveables;
 using UnityEngine;
 using MelonLoader;
+using S1API.GameTime;
 #if MONO
 using ScheduleOne.Map;
 using ScheduleOne.DevUtilities;
@@ -14,30 +14,43 @@ using Il2CppScheduleOne.DevUtilities;
 namespace BetterSewerKeys
 {
     /// <summary>
+    /// Serializable data class for BetterSewerKeys save data
+    /// </summary>
+    public class BetterSewerKeysData
+    {
+        public Dictionary<int, bool> UnlockedEntrances = new Dictionary<int, bool>();
+        public Dictionary<int, int> KeyLocationIndices = new Dictionary<int, int>();
+        public Dictionary<int, int> KeyPossessorIndices = new Dictionary<int, int>();
+        public Dictionary<int, bool> IsRandomWorldKeyCollected = new Dictionary<int, bool>();
+        public int LastDayKeyWasCollected = -1;
+
+        public BetterSewerKeysData()
+        {
+        }
+    }
+
+    /// <summary>
     /// S1API Saveable for persisting per-entrance unlock states and key distribution data
     /// </summary>
     public class BetterSewerKeysSave : Saveable
     {
-        [SaveableField("unlockedEntrances")]
-        private Dictionary<int, bool> _unlockedEntrances = new Dictionary<int, bool>();
+        [SaveableField("better_sewer_keys_data")]
+        private BetterSewerKeysData _data = new BetterSewerKeysData();
 
-        [SaveableField("keyLocationIndices")]
-        private Dictionary<int, int> _keyLocationIndices = new Dictionary<int, int>();
+        public Dictionary<int, bool> UnlockedEntrances => _data.UnlockedEntrances;
+        public Dictionary<int, int> KeyLocationIndices => _data.KeyLocationIndices;
+        public Dictionary<int, int> KeyPossessorIndices => _data.KeyPossessorIndices;
+        public Dictionary<int, bool> IsRandomWorldKeyCollected => _data.IsRandomWorldKeyCollected;
+        public int LastDayKeyWasCollected => _data.LastDayKeyWasCollected;
 
-        [SaveableField("keyPossessorIndices")]
-        private Dictionary<int, int> _keyPossessorIndices = new Dictionary<int, int>();
-
-        [SaveableField("isRandomWorldKeyCollected")]
-        private Dictionary<int, bool> _isRandomWorldKeyCollected = new Dictionary<int, bool>();
-
-        public Dictionary<int, bool> UnlockedEntrances => _unlockedEntrances;
-        public Dictionary<int, int> KeyLocationIndices => _keyLocationIndices;
-        public Dictionary<int, int> KeyPossessorIndices => _keyPossessorIndices;
-        public Dictionary<int, bool> IsRandomWorldKeyCollected => _isRandomWorldKeyCollected;
+        public BetterSewerKeysSave()
+        {
+            TimeManager.OnDayPass += OnDayPass;
+        }
 
         protected override void OnLoaded()
         {
-            Utils.ModLogger.Info($"BetterSewerKeys: Loaded save data - {_unlockedEntrances.Count} entrances tracked");
+            Utils.ModLogger.Info($"BetterSewerKeys: Loaded save data - {_data.UnlockedEntrances.Count} entrances tracked");
             
             // Check for migration from old save format
             CheckAndMigrateOldSave();
@@ -46,6 +59,66 @@ namespace BetterSewerKeys
             if (BetterSewerKeysManager.Instance != null)
             {
                 BetterSewerKeysManager.Instance.ApplySaveData(this);
+            }
+
+            // Trigger new key pickup if needed
+            CheckAndSpawnNewKeyPickup();
+        }
+
+        /// <summary>
+        /// Called when a new day passes - check if we need to spawn a new key pickup
+        /// </summary>
+        private void OnDayPass()
+        {
+            CheckAndSpawnNewKeyPickup();
+        }
+
+        /// <summary>
+        /// Check if we need to spawn a new key pickup and do so if all entrances aren't unlocked
+        /// </summary>
+        private void CheckAndSpawnNewKeyPickup()
+        {
+            try
+            {
+                var manager = BetterSewerKeysManager.Instance;
+                if (manager == null || manager.AreAllEntrancesUnlocked())
+                {
+                    return; // All unlocked, no need for new keys
+                }
+
+                var sewerManager = NetworkSingleton<SewerManager>.Instance;
+                if (sewerManager == null || sewerManager.RandomWorldSewerKeyPickup == null)
+                {
+                    return;
+                }
+
+                // If pickup is disabled, find an entrance that needs a key
+                if (!sewerManager.RandomWorldSewerKeyPickup.gameObject.activeSelf)
+                {
+                    // Find an entrance that is locked and hasn't had its world key collected yet
+                    foreach (var entranceID in manager.GetAllEntranceIDs())
+                    {
+                        if (!manager.IsEntranceUnlocked(entranceID))
+                        {
+                            // Check if this entrance's world key hasn't been collected yet
+                            if (!IsRandomWorldKeyCollectedForEntrance(entranceID))
+                            {
+                                int locationIndex = GetKeyLocationIndex(entranceID);
+                                if (locationIndex >= 0 && locationIndex < sewerManager.RandomSewerKeyLocations.Length)
+                                {
+                                    sewerManager.SetSewerKeyLocation(null, locationIndex);
+                                    sewerManager.RandomWorldSewerKeyPickup.gameObject.SetActive(true);
+                                    Utils.ModLogger.Info($"BetterSewerKeys: Spawned new key pickup for entrance {entranceID} at location {locationIndex}");
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch (System.Exception ex)
+            {
+                Utils.ModLogger.Error("Error checking for new key pickup", ex);
             }
         }
 
@@ -57,7 +130,7 @@ namespace BetterSewerKeys
             try
             {
                 // Check if this is first run (no save data exists)
-                if (_unlockedEntrances.Count == 0)
+                if (_data.UnlockedEntrances.Count == 0)
                 {
                     Utils.ModLogger.Debug("BetterSewerKeys: First run detected, checking for old save migration");
                     
@@ -126,7 +199,7 @@ namespace BetterSewerKeys
 
         protected override void OnSaved()
         {
-            Utils.ModLogger.Debug($"BetterSewerKeys: Saved data - {_unlockedEntrances.Count} entrances tracked");
+            Utils.ModLogger.Debug($"BetterSewerKeys: Saved data - {_data.UnlockedEntrances.Count} entrances tracked");
         }
 
         /// <summary>
@@ -134,7 +207,7 @@ namespace BetterSewerKeys
         /// </summary>
         public bool IsEntranceUnlocked(int entranceID)
         {
-            return _unlockedEntrances.TryGetValue(entranceID, out bool unlocked) && unlocked;
+            return _data.UnlockedEntrances.TryGetValue(entranceID, out bool unlocked) && unlocked;
         }
 
         /// <summary>
@@ -142,7 +215,7 @@ namespace BetterSewerKeys
         /// </summary>
         public void SetEntranceUnlocked(int entranceID, bool unlocked)
         {
-            _unlockedEntrances[entranceID] = unlocked;
+            _data.UnlockedEntrances[entranceID] = unlocked;
             RequestGameSave();
         }
 
@@ -151,7 +224,7 @@ namespace BetterSewerKeys
         /// </summary>
         public int GetKeyLocationIndex(int entranceID)
         {
-            return _keyLocationIndices.TryGetValue(entranceID, out int index) ? index : -1;
+            return _data.KeyLocationIndices.TryGetValue(entranceID, out int index) ? index : -1;
         }
 
         /// <summary>
@@ -159,7 +232,7 @@ namespace BetterSewerKeys
         /// </summary>
         public void SetKeyLocationIndex(int entranceID, int locationIndex)
         {
-            _keyLocationIndices[entranceID] = locationIndex;
+            _data.KeyLocationIndices[entranceID] = locationIndex;
         }
 
         /// <summary>
@@ -167,7 +240,7 @@ namespace BetterSewerKeys
         /// </summary>
         public int GetKeyPossessorIndex(int entranceID)
         {
-            return _keyPossessorIndices.TryGetValue(entranceID, out int index) ? index : -1;
+            return _data.KeyPossessorIndices.TryGetValue(entranceID, out int index) ? index : -1;
         }
 
         /// <summary>
@@ -175,7 +248,7 @@ namespace BetterSewerKeys
         /// </summary>
         public void SetKeyPossessorIndex(int entranceID, int possessorIndex)
         {
-            _keyPossessorIndices[entranceID] = possessorIndex;
+            _data.KeyPossessorIndices[entranceID] = possessorIndex;
         }
 
         /// <summary>
@@ -183,7 +256,7 @@ namespace BetterSewerKeys
         /// </summary>
         public bool IsRandomWorldKeyCollectedForEntrance(int entranceID)
         {
-            return _isRandomWorldKeyCollected.TryGetValue(entranceID, out bool collected) && collected;
+            return _data.IsRandomWorldKeyCollected.TryGetValue(entranceID, out bool collected) && collected;
         }
 
         /// <summary>
@@ -191,7 +264,11 @@ namespace BetterSewerKeys
         /// </summary>
         public void SetRandomWorldKeyCollected(int entranceID, bool collected)
         {
-            _isRandomWorldKeyCollected[entranceID] = collected;
+            _data.IsRandomWorldKeyCollected[entranceID] = collected;
+            if (collected)
+            {
+                _data.LastDayKeyWasCollected = TimeManager.ElapsedDays;
+            }
         }
     }
 }

@@ -1,7 +1,6 @@
 ﻿#if MONO
 using ScheduleOne;
 #else
-using Il2CppScheduleOne;
 #endif
 using HarmonyLib;
 

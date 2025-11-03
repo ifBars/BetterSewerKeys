@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-
-namespace BetterSewerKeys.Utils
+﻿namespace BetterSewerKeys.Utils
 {
     public static class Constants
     {

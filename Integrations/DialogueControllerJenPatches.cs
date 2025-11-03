@@ -9,8 +9,6 @@ using ScheduleOne.Money;
 #else
 using Il2CppScheduleOne.Dialogue;
 using Il2CppScheduleOne.DevUtilities;
-using Il2CppScheduleOne.ItemFramework;
-using Il2CppScheduleOne.Map;
 using Il2CppScheduleOne.NPCs.Relation;
 using Il2CppScheduleOne.PlayerScripts;
 using Il2CppScheduleOne.Money;
