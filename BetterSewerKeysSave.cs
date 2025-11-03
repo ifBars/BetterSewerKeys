@@ -17,8 +17,8 @@ namespace BetterSewerKeys
 {
     /// <summary>
     /// Serializable data class for BetterSewerKeys save data
+    /// Note: Not using [Serializable] because S1API uses Newtonsoft.Json which handles dictionaries fine
     /// </summary>
-    [Serializable]
     public class BetterSewerKeysData
     {
         public Dictionary<int, bool> UnlockedEntrances = new Dictionary<int, bool>();
@@ -37,6 +37,12 @@ namespace BetterSewerKeys
     /// </summary>
     public class BetterSewerKeysSave : Saveable
     {
+        /// <summary>
+        /// Static reference to the instance created by SaveableAutoRegistry
+        /// Set in OnLoaded() and OnCreated() hooks
+        /// </summary>
+        public static BetterSewerKeysSave? Instance { get; private set; }
+
         [SaveableField("better_sewer_keysData")]
         public BetterSewerKeysData Data = new BetterSewerKeysData();
 
@@ -54,8 +60,31 @@ namespace BetterSewerKeys
         {
             Utils.ModLogger.Info($"BetterSewerKeys: Loaded save data - {Data.UnlockedEntrances.Count} entrances tracked");
             
+            // Store reference to this instance (created by SaveableAutoRegistry)
+            Instance = this;
+            
+            // Initialize manager if not already done
+            if (BetterSewerKeysManager.Instance != null)
+            {
+                BetterSewerKeysManager.Instance.Initialize(this);
+            }
+            
             // Check for migration from old save format
             CheckAndMigrateOldSave();
+        }
+
+        protected override void OnCreated()
+        {
+            Utils.ModLogger.Info("BetterSewerKeys: Save data instance created");
+            
+            // Store reference to this instance (created by SaveableAutoRegistry)
+            Instance = this;
+            
+            // Initialize manager if not already done
+            if (BetterSewerKeysManager.Instance != null)
+            {
+                BetterSewerKeysManager.Instance.Initialize(this);
+            }
         }
 
         /// <summary>

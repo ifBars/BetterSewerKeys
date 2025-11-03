@@ -31,11 +31,9 @@ namespace BetterSewerKeys
                 // Initialize Harmony patches
                 HarmonyPatches.SetModInstance(this);
 
-                // Create save data instance (S1API will auto-discover it)
-                _saveData = new BetterSewerKeysSave();
-
-                // Initialize manager with save data
-                BetterSewerKeysManager.Instance.Initialize(_saveData);
+                // Don't create instance here - let SaveableAutoRegistry handle it
+                // The instance will be set in BetterSewerKeysSave.OnLoaded() or OnCreated()
+                // We'll initialize the manager when the save data is available
 
                 ModLogger.Info("BetterSewerKeys mod initialized successfully");
             }
@@ -70,13 +68,22 @@ namespace BetterSewerKeys
             
             try
             {
+                if (BetterSewerKeysSave.Instance == null)
+                {
+                    ModLogger.Warning("BetterSewerKeys: Save data instance not available after waiting");
+                    yield break;
+                }
+                
+                // Store reference for convenience
+                _saveData = BetterSewerKeysSave.Instance;
+                
+                // Initialize manager with save data
+                BetterSewerKeysManager.Instance.Initialize(_saveData);
+                
                 BetterSewerKeysManager.Instance.DiscoverEntrances();
                 
                 // Apply save data after doors are discovered
-                if (_saveData != null)
-                {
-                    _saveData.ApplySaveDataAfterDiscovery();
-                }
+                _saveData.ApplySaveDataAfterDiscovery();
                 
                 // Assign key distribution after discovery
                 var sewerManager = NetworkSingleton<SewerManager>.Instance;
