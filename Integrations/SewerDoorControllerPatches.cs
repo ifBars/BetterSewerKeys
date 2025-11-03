@@ -89,6 +89,7 @@ namespace BetterSewerKeys.Integrations
 
         /// <summary>
         /// Patch CanPlayerAccess to check per-entrance unlock state instead of global
+        /// If entrance is unlocked, allow access without requiring a key
         /// </summary>
         [HarmonyPatch(typeof(SewerDoorController), "CanPlayerAccess")]
         [HarmonyPrefix]
@@ -98,8 +99,8 @@ namespace BetterSewerKeys.Integrations
             {
                 reason = string.Empty;
                 
-                // Only check for exterior side when door is locked
-                if (side == EDoorSide.Exterior)
+                // Only check for exterior side when door is closed
+                if (side == EDoorSide.Exterior && !__instance.IsOpen)
                 {
                     int entranceID = GetEntranceID(__instance);
                     
@@ -110,35 +111,34 @@ namespace BetterSewerKeys.Integrations
                     }
 
                     // Check if this specific entrance is unlocked
-                    bool isUnlocked = BetterSewerKeysManager.Instance.IsEntranceUnlocked(entranceID);
+                    bool isUnlocked = BetterSewerKeysManager.Instance != null && 
+                                     BetterSewerKeysManager.Instance.IsEntranceUnlocked(entranceID);
                     
-                    // If unlocked, let original method handle (it will return true)
+                    // If unlocked, allow access without requiring a key
                     if (isUnlocked)
                     {
-                        return true; // Let original method run
+                        __result = true;
+                        return false; // Skip original method - entrance is unlocked, no key needed
                     }
                     
                     // Entrance is locked - check if player has the key item
-                    if (!__instance.IsOpen)
+                    var sewerManager = NetworkSingleton<SewerManager>.Instance;
+                    if (sewerManager != null)
                     {
-                        var sewerManager = NetworkSingleton<SewerManager>.Instance;
-                        if (sewerManager != null)
+                        var playerInventory = PlayerSingleton<PlayerInventory>.Instance;
+                        if (playerInventory != null && playerInventory.GetAmountOfItem(sewerManager.SewerKeyItem.ID) != 0)
                         {
-                            var playerInventory = PlayerSingleton<PlayerInventory>.Instance;
-                            if (playerInventory != null && playerInventory.GetAmountOfItem(sewerManager.SewerKeyItem.ID) != 0)
-                            {
-                                __result = true;
-                                return false; // Skip original method - player has key
-                            }
+                            __result = true;
+                            return false; // Skip original method - player has key
                         }
                         
-                        reason = sewerManager?.SewerKeyItem.Name + " required";
+                        reason = sewerManager.SewerKeyItem.Name + " required";
                         __result = false;
                         return false; // Skip original method - player doesn't have key
                     }
                 }
                 
-                // Let original method handle other cases
+                // Let original method handle other cases (interior side, door already open, etc.)
                 return true;
             }
             catch (System.Exception ex)
@@ -164,23 +164,31 @@ namespace BetterSewerKeys.Integrations
         }
 
         /// <summary>
-        /// Patch ExteriorHandleInteracted to prevent duplicate unlock attempts
-        /// We need to prevent the unlock logic from running if this entrance is already unlocked
+        /// Patch ExteriorHandleInteracted to prevent unlock attempts if this entrance is already unlocked
         /// </summary>
         [HarmonyPatch(typeof(SewerDoorController), "ExteriorHandleInteracted")]
         [HarmonyPrefix]
-        public static void SewerDoorController_ExteriorHandleInteracted_Prefix(SewerDoorController __instance, out bool __state)
+        public static bool SewerDoorController_ExteriorHandleInteracted_Prefix(SewerDoorController __instance, out bool __state)
         {
             // Track this door as the last interacted one
             _lastInteractedDoor = __instance;
             
             // Track if this entrance was already unlocked before the original method ran
             int entranceID = GetEntranceID(__instance);
-            __state = entranceID != -1 && BetterSewerKeysManager.Instance.IsEntranceUnlocked(entranceID);
+            bool wasAlreadyUnlocked = entranceID != -1 && 
+                                     BetterSewerKeysManager.Instance != null && 
+                                     BetterSewerKeysManager.Instance.IsEntranceUnlocked(entranceID);
+            
+            __state = wasAlreadyUnlocked;
+            
+            // If entrance is already unlocked, prevent the unlock logic from running
+            // We still need to let base.ExteriorHandleInteracted() run to open/close the door
+            // But we'll prevent the key consumption in the postfix
+            return true; // Let original method run
         }
 
         /// <summary>
-        /// Patch ExteriorHandleInteracted postfix to prevent duplicate unlock attempts
+        /// Patch ExteriorHandleInteracted postfix to prevent key consumption if entrance was already unlocked
         /// </summary>
         [HarmonyPatch(typeof(SewerDoorController), "ExteriorHandleInteracted")]
         [HarmonyPostfix]
@@ -188,32 +196,20 @@ namespace BetterSewerKeys.Integrations
         {
             try
             {
-                // If entrance was already unlocked before original method ran, prevent duplicate unlock
+                // If entrance was already unlocked before original method ran, restore key if it was consumed
                 if (__state)
                 {
                     int entranceID = GetEntranceID(__instance);
                     
-                    // Check if the original method tried to unlock (consumed a key)
+                    // The original method might have consumed a key even though entrance was unlocked
+                    // because it checks !IsSewerUnlocked (which returns false until all unlocked)
+                    // SetSewerUnlocked_Server patch will handle restoring the key, but we should also check here
                     var sewerManager = NetworkSingleton<SewerManager>.Instance;
                     if (sewerManager != null)
                     {
-                        var playerInventory = PlayerSingleton<PlayerInventory>.Instance;
-                        if (playerInventory != null)
-                        {
-                            // Check if a key was consumed but shouldn't have been
-                            // The original method checks !IsSewerUnlocked, which we patch to return false until all unlocked
-                            // So it would have tried to unlock. But since this entrance is already unlocked,
-                            // SetSewerUnlocked_Server would have unlocked a different entrance (first locked one)
-                            // So we need to check if SetSewerUnlocked_Server was called and undo it if needed
-                            
-                            // Actually, the issue is that SetSewerUnlocked_Server will unlock the first locked entrance
-                            // But if the player used a key on an already-unlocked entrance, we shouldn't unlock anything
-                            // We need to prevent SetSewerUnlocked_Server from running in this case
-                            
-                            // The best way is to clear _lastInteractedDoor before SetSewerUnlocked_Server runs
-                            // But that's timing-dependent. Instead, we'll check in SetSewerUnlocked_Server if the entrance
-                            // was already unlocked before the interaction
-                        }
+                        // SetSewerUnlocked_Server patch already handles restoring the key if entrance was unlocked
+                        // So we don't need to do anything here, just log for debugging
+                        ModLogger.Debug($"ExteriorHandleInteracted: Entrance {entranceID} was already unlocked, unlock logic should be prevented");
                     }
                 }
                 
