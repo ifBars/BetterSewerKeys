@@ -1,6 +1,6 @@
 # BetterSewerKeys
 
-BetterSewerKeys transforms the sewer key system from a single-use master key into a strategic per-entrance unlocking system. Instead of one key unlocking all sewer entrances, each entrance now requires its own key, forcing players to make careful decisions about which entrances to prioritize.
+BetterSewerKeys transforms the sewer key system from a single-use master key into a strategic per-entrance unlocking system. Instead of one key unlocking all sewer entrances, each entrance now requires its own key.
 
 ## What Changed?
 
@@ -46,7 +46,7 @@ BetterSewerKeys transforms the sewer key system from a single-use master key int
 ## Installation
 
 1. Ensure you have MelonLoader installed for Schedule I
-2. Place the `BetterSewerKeys-Il2Cpp.dll` or `BetterSewerKeys-Mono.dll` file in your `Mods/` folder
+2. Place the `BetterSewerKeys_Il2cpp.dll` or `BetterSewerKeys_Mono.dll` file in your `Mods/` folder
 3. Launch the game - the mod will automatically initialize
 
 ## Requirements
