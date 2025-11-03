@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using S1API.Internal.Abstraction;
 using S1API.Saveables;
 using UnityEngine;
@@ -55,6 +56,16 @@ namespace BetterSewerKeys
             // Check for migration from old save format
             CheckAndMigrateOldSave();
             
+            // Don't apply save data here - wait until doors are discovered
+            // This will be called from Core.DelayedDiscovery() after doors are found
+        }
+
+        /// <summary>
+        /// Apply save data to manager after doors are discovered
+        /// Called from Core.DelayedDiscovery()
+        /// </summary>
+        public void ApplySaveDataAfterDiscovery()
+        {
             // Apply loaded data to manager
             if (BetterSewerKeysManager.Instance != null)
             {

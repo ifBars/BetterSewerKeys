@@ -72,6 +72,12 @@ namespace BetterSewerKeys
             {
                 BetterSewerKeysManager.Instance.DiscoverEntrances();
                 
+                // Apply save data after doors are discovered
+                if (_saveData != null)
+                {
+                    _saveData.ApplySaveDataAfterDiscovery();
+                }
+                
                 // Assign key distribution after discovery
                 var sewerManager = NetworkSingleton<SewerManager>.Instance;
                 if (sewerManager != null)
