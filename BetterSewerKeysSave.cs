@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using S1API.Internal.Abstraction;
 using S1API.Saveables;
 using UnityEngine;
@@ -46,7 +45,6 @@ namespace BetterSewerKeys
 
         public BetterSewerKeysSave()
         {
-            TimeManager.OnDayPass += OnDayPass;
         }
 
         protected override void OnLoaded()
@@ -55,9 +53,6 @@ namespace BetterSewerKeys
             
             // Check for migration from old save format
             CheckAndMigrateOldSave();
-            
-            // Don't apply save data here - wait until doors are discovered
-            // This will be called from Core.DelayedDiscovery() after doors are found
         }
 
         /// <summary>
@@ -66,6 +61,10 @@ namespace BetterSewerKeys
         /// </summary>
         public void ApplySaveDataAfterDiscovery()
         {
+            // Make sure we're subscribed to day pass events
+            TimeManager.OnDayPass -= OnDayPass;
+            TimeManager.OnDayPass += OnDayPass;
+            
             // Apply loaded data to manager
             if (BetterSewerKeysManager.Instance != null)
             {
@@ -77,15 +76,17 @@ namespace BetterSewerKeys
         }
 
         /// <summary>
-        /// Called when a new day passes - check if we need to spawn a new key pickup
+        /// Called when a new day passes - move random key to new location and enable it
         /// </summary>
         private void OnDayPass()
         {
+            Utils.ModLogger.Info("BetterSewerKeys: OnDayPass callback fired");
             CheckAndSpawnNewKeyPickup();
         }
 
         /// <summary>
         /// Check if we need to spawn a new key pickup and do so if all entrances aren't unlocked
+        /// Moves the key to a random new location for a locked entrance
         /// </summary>
         private void CheckAndSpawnNewKeyPickup()
         {
@@ -98,34 +99,49 @@ namespace BetterSewerKeys
                 }
 
                 var sewerManager = NetworkSingleton<SewerManager>.Instance;
-                if (sewerManager == null || sewerManager.RandomWorldSewerKeyPickup == null)
+                if (sewerManager == null || sewerManager.RandomWorldSewerKeyPickup == null || 
+                    sewerManager.RandomSewerKeyLocations == null || sewerManager.RandomSewerKeyLocations.Length == 0)
                 {
                     return;
                 }
 
-                // If pickup is disabled, find an entrance that needs a key
-                if (!sewerManager.RandomWorldSewerKeyPickup.gameObject.activeSelf)
+                // Find all locked entrances (regardless of whether they've collected their world key before)
+                var lockedEntrances = new List<int>();
+                foreach (var entranceID in manager.GetAllEntranceIDs())
                 {
-                    // Find an entrance that is locked and hasn't had its world key collected yet
-                    foreach (var entranceID in manager.GetAllEntranceIDs())
+                    if (!manager.IsEntranceUnlocked(entranceID))
                     {
-                        if (!manager.IsEntranceUnlocked(entranceID))
-                        {
-                            // Check if this entrance's world key hasn't been collected yet
-                            if (!IsRandomWorldKeyCollectedForEntrance(entranceID))
-                            {
-                                int locationIndex = GetKeyLocationIndex(entranceID);
-                                if (locationIndex >= 0 && locationIndex < sewerManager.RandomSewerKeyLocations.Length)
-                                {
-                                    sewerManager.SetSewerKeyLocation(null, locationIndex);
-                                    sewerManager.RandomWorldSewerKeyPickup.gameObject.SetActive(true);
-                                    Utils.ModLogger.Info($"BetterSewerKeys: Spawned new key pickup for entrance {entranceID} at location {locationIndex}");
-                                    return;
-                                }
-                            }
-                        }
+                        lockedEntrances.Add(entranceID);
                     }
                 }
+
+                if (lockedEntrances.Count == 0)
+                {
+                    return; // All entrances unlocked
+                }
+
+                // Pick a random locked entrance
+                int randomIndex = UnityEngine.Random.Range(0, lockedEntrances.Count);
+                int selectedEntranceID = lockedEntrances[randomIndex];
+
+                // Get available locations (all locations)
+                var availableLocations = new List<int>();
+                for (int i = 0; i < sewerManager.RandomSewerKeyLocations.Length; i++)
+                {
+                    availableLocations.Add(i);
+                }
+
+                // Pick a random location
+                int randomLocationIndex = availableLocations[UnityEngine.Random.Range(0, availableLocations.Count)];
+
+                // Update the location index for this entrance (or assign if not set)
+                SetKeyLocationIndex(selectedEntranceID, randomLocationIndex);
+
+                // Move the pickup to the new location and enable it
+                sewerManager.SetSewerKeyLocation(null, randomLocationIndex);
+                sewerManager.RandomWorldSewerKeyPickup.gameObject.SetActive(true);
+
+                Utils.ModLogger.Info($"BetterSewerKeys: Moved random key pickup to new location {randomLocationIndex} for entrance {selectedEntranceID} on day pass");
             }
             catch (System.Exception ex)
             {

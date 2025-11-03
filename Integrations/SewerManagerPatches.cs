@@ -275,29 +275,51 @@ namespace BetterSewerKeys.Integrations
         }
 
         /// <summary>
-        /// Patch Load to prevent IsRandomWorldKeyCollected from being set to true until all entrances are unlocked
+        /// Patch Load to prevent IsRandomWorldKeyCollected from being set to true and prevent calling SetRandomWorldKeyCollected
         /// </summary>
         [HarmonyPatch(typeof(SewerManager), "Load")]
-        [HarmonyPostfix]
-        public static void SewerManager_Load_Postfix(SewerManager __instance)
+        [HarmonyPrefix]
+        public static void SewerManager_Load_Prefix(SewerManager __instance, ref bool __state)
         {
             try
             {
                 var manager = BetterSewerKeysManager.Instance;
-                if (manager != null && !manager.AreAllEntrancesUnlocked())
+                // Store whether we should block the SetRandomWorldKeyCollected call
+                __state = manager != null && !manager.AreAllEntrancesUnlocked();
+            }
+            catch
+            {
+                __state = false;
+            }
+        }
+
+        /// <summary>
+        /// Patch Load postfix to prevent IsRandomWorldKeyCollected from being set to true until all entrances are unlocked
+        /// </summary>
+        [HarmonyPatch(typeof(SewerManager), "Load")]
+        [HarmonyPostfix]
+        public static void SewerManager_Load_Postfix(SewerManager __instance, bool __state)
+        {
+            try
+            {
+                if (!__state)
+                    return; // All entrances unlocked, let normal behavior happen
+
+                var manager = BetterSewerKeysManager.Instance;
+                if (manager == null)
+                    return;
+
+                // Force IsRandomWorldKeyCollected to false if not all entrances are unlocked
+                // Use reflection to set the private property
+                var property = typeof(SewerManager).GetProperty("IsRandomWorldKeyCollected", 
+                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+                
+                if (property != null && property.CanWrite)
                 {
-                    // Force IsRandomWorldKeyCollected to false if not all entrances are unlocked
-                    // Use reflection to set the private field
-                    var field = typeof(SewerManager).GetField("IsRandomWorldKeyCollected", 
-                        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
+                    property.SetValue(__instance, false);
+                    ModLogger.Debug("SewerManager.Load: Forced IsRandomWorldKeyCollected to false (not all entrances unlocked)");
                     
-                    if (field != null)
-                    {
-                        field.SetValue(__instance, false);
-                        ModLogger.Debug("SewerManager.Load: Forced IsRandomWorldKeyCollected to false (not all entrances unlocked)");
-                    }
-                    
-                    // Re-enable pickup if needed
+                    // Re-enable pickup if it was disabled
                     if (__instance.RandomWorldSewerKeyPickup != null && !__instance.RandomWorldSewerKeyPickup.gameObject.activeSelf)
                     {
                         var saveData = manager.GetSaveData();
@@ -322,6 +344,33 @@ namespace BetterSewerKeys.Integrations
             catch (System.Exception ex)
             {
                 ModLogger.Error("Error in SewerManager.Load postfix", ex);
+            }
+        }
+
+        /// <summary>
+        /// Patch SetRandomKeyCollected_Server to prevent RPC from being sent until all entrances are unlocked
+        /// </summary>
+        [HarmonyPatch(typeof(SewerManager), "SetRandomKeyCollected_Server")]
+        [HarmonyPrefix]
+        public static bool SewerManager_SetRandomKeyCollected_Server_Prefix(SewerManager __instance)
+        {
+            try
+            {
+                var manager = BetterSewerKeysManager.Instance;
+                if (manager != null && !manager.AreAllEntrancesUnlocked())
+                {
+                    // Don't send RPC if not all entrances are unlocked
+                    // This prevents the RPC chain from disabling the pickup
+                    ModLogger.Debug("SewerManager.SetRandomKeyCollected_Server: Blocked RPC (not all entrances unlocked)");
+                    return false; // Skip original method
+                }
+                
+                return true; // Let original method run
+            }
+            catch (System.Exception ex)
+            {
+                ModLogger.Error("Error in SewerManager.SetRandomKeyCollected_Server prefix", ex);
+                return true; // Let original method run on error
             }
         }
 
@@ -362,6 +411,7 @@ namespace BetterSewerKeys.Integrations
                         __instance.RandomWorldSewerKeyPickup.gameObject.SetActive(false);
                         
                         // Don't call original method - we've handled it
+                        // This prevents the RPC chain from starting
                         return false;
                     }
                 }
