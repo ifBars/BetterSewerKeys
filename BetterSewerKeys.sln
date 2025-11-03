@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.36603.0 d17.14
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BetterSewerKeys", "BetterSewerKeys.csproj", "{903C52AD-FA50-48AB-B956-156563532C90}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Il2cpp|Any CPU = Il2cpp|Any CPU
+		Mono|Any CPU = Mono|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{903C52AD-FA50-48AB-B956-156563532C90}.Il2cpp|Any CPU.ActiveCfg = Il2cpp|Any CPU
+		{903C52AD-FA50-48AB-B956-156563532C90}.Il2cpp|Any CPU.Build.0 = Il2cpp|Any CPU
+		{903C52AD-FA50-48AB-B956-156563532C90}.Mono|Any CPU.ActiveCfg = Mono|Any CPU
+		{903C52AD-FA50-48AB-B956-156563532C90}.Mono|Any CPU.Build.0 = Mono|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {0E80276B-98A6-4D35-802F-0662AF990321}
+	EndGlobalSection
+EndGlobal
