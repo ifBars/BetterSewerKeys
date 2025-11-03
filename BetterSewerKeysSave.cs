@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using System;
 using S1API.Internal.Abstraction;
 using S1API.Saveables;
 using UnityEngine;
@@ -16,6 +18,7 @@ namespace BetterSewerKeys
     /// <summary>
     /// Serializable data class for BetterSewerKeys save data
     /// </summary>
+    [Serializable]
     public class BetterSewerKeysData
     {
         public Dictionary<int, bool> UnlockedEntrances = new Dictionary<int, bool>();
@@ -34,14 +37,14 @@ namespace BetterSewerKeys
     /// </summary>
     public class BetterSewerKeysSave : Saveable
     {
-        [SaveableField("better_sewer_keys_data")]
-        private BetterSewerKeysData _data = new BetterSewerKeysData();
+        [SaveableField("better_sewer_keysData")]
+        public BetterSewerKeysData Data = new BetterSewerKeysData();
 
-        public Dictionary<int, bool> UnlockedEntrances => _data.UnlockedEntrances;
-        public Dictionary<int, int> KeyLocationIndices => _data.KeyLocationIndices;
-        public Dictionary<int, int> KeyPossessorIndices => _data.KeyPossessorIndices;
-        public Dictionary<int, bool> IsRandomWorldKeyCollected => _data.IsRandomWorldKeyCollected;
-        public int LastDayKeyWasCollected => _data.LastDayKeyWasCollected;
+        public Dictionary<int, bool> UnlockedEntrances => Data.UnlockedEntrances;
+        public Dictionary<int, int> KeyLocationIndices => Data.KeyLocationIndices;
+        public Dictionary<int, int> KeyPossessorIndices => Data.KeyPossessorIndices;
+        public Dictionary<int, bool> IsRandomWorldKeyCollected => Data.IsRandomWorldKeyCollected;
+        public int LastDayKeyWasCollected => Data.LastDayKeyWasCollected;
 
         public BetterSewerKeysSave()
         {
@@ -49,7 +52,7 @@ namespace BetterSewerKeys
 
         protected override void OnLoaded()
         {
-            Utils.ModLogger.Info($"BetterSewerKeys: Loaded save data - {_data.UnlockedEntrances.Count} entrances tracked");
+            Utils.ModLogger.Info($"BetterSewerKeys: Loaded save data - {Data.UnlockedEntrances.Count} entrances tracked");
             
             // Check for migration from old save format
             CheckAndMigrateOldSave();
@@ -157,7 +160,7 @@ namespace BetterSewerKeys
             try
             {
                 // Check if this is first run (no save data exists)
-                if (_data.UnlockedEntrances.Count == 0)
+                if (Data.UnlockedEntrances.Count == 0)
                 {
                     Utils.ModLogger.Debug("BetterSewerKeys: First run detected, checking for old save migration");
                     
@@ -226,7 +229,8 @@ namespace BetterSewerKeys
 
         protected override void OnSaved()
         {
-            Utils.ModLogger.Debug($"BetterSewerKeys: Saved data - {_data.UnlockedEntrances.Count} entrances tracked");
+            Utils.ModLogger.Debug($"BetterSewerKeys: Saved data - {Data.UnlockedEntrances.Count} entrances tracked");
+            Utils.ModLogger.Debug($"BetterSewerKeys: OnSaved - UnlockedEntrances: {Data.UnlockedEntrances.Count}, KeyLocationIndices: {Data.KeyLocationIndices.Count}, KeyPossessorIndices: {Data.KeyPossessorIndices.Count}, IsRandomWorldKeyCollected: {Data.IsRandomWorldKeyCollected.Count}");
         }
 
         /// <summary>
@@ -234,7 +238,7 @@ namespace BetterSewerKeys
         /// </summary>
         public bool IsEntranceUnlocked(int entranceID)
         {
-            return _data.UnlockedEntrances.TryGetValue(entranceID, out bool unlocked) && unlocked;
+            return Data.UnlockedEntrances.TryGetValue(entranceID, out bool unlocked) && unlocked;
         }
 
         /// <summary>
@@ -242,7 +246,7 @@ namespace BetterSewerKeys
         /// </summary>
         public void SetEntranceUnlocked(int entranceID, bool unlocked)
         {
-            _data.UnlockedEntrances[entranceID] = unlocked;
+            Data.UnlockedEntrances[entranceID] = unlocked;
             RequestGameSave();
         }
 
@@ -251,7 +255,7 @@ namespace BetterSewerKeys
         /// </summary>
         public int GetKeyLocationIndex(int entranceID)
         {
-            return _data.KeyLocationIndices.TryGetValue(entranceID, out int index) ? index : -1;
+            return Data.KeyLocationIndices.TryGetValue(entranceID, out int index) ? index : -1;
         }
 
         /// <summary>
@@ -259,7 +263,8 @@ namespace BetterSewerKeys
         /// </summary>
         public void SetKeyLocationIndex(int entranceID, int locationIndex)
         {
-            _data.KeyLocationIndices[entranceID] = locationIndex;
+            Data.KeyLocationIndices[entranceID] = locationIndex;
+            RequestGameSave();
         }
 
         /// <summary>
@@ -267,7 +272,7 @@ namespace BetterSewerKeys
         /// </summary>
         public int GetKeyPossessorIndex(int entranceID)
         {
-            return _data.KeyPossessorIndices.TryGetValue(entranceID, out int index) ? index : -1;
+            return Data.KeyPossessorIndices.TryGetValue(entranceID, out int index) ? index : -1;
         }
 
         /// <summary>
@@ -275,7 +280,8 @@ namespace BetterSewerKeys
         /// </summary>
         public void SetKeyPossessorIndex(int entranceID, int possessorIndex)
         {
-            _data.KeyPossessorIndices[entranceID] = possessorIndex;
+            Data.KeyPossessorIndices[entranceID] = possessorIndex;
+            RequestGameSave();
         }
 
         /// <summary>
@@ -283,7 +289,7 @@ namespace BetterSewerKeys
         /// </summary>
         public bool IsRandomWorldKeyCollectedForEntrance(int entranceID)
         {
-            return _data.IsRandomWorldKeyCollected.TryGetValue(entranceID, out bool collected) && collected;
+            return Data.IsRandomWorldKeyCollected.TryGetValue(entranceID, out bool collected) && collected;
         }
 
         /// <summary>
@@ -291,11 +297,12 @@ namespace BetterSewerKeys
         /// </summary>
         public void SetRandomWorldKeyCollected(int entranceID, bool collected)
         {
-            _data.IsRandomWorldKeyCollected[entranceID] = collected;
+            Data.IsRandomWorldKeyCollected[entranceID] = collected;
             if (collected)
             {
-                _data.LastDayKeyWasCollected = TimeManager.ElapsedDays;
+                Data.LastDayKeyWasCollected = TimeManager.ElapsedDays;
             }
+            RequestGameSave();
         }
     }
 }

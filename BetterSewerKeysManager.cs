@@ -1,4 +1,6 @@
 using Object = UnityEngine.Object;
+using System.Collections.Generic;
+using System.Linq;
 #if MONO
 using ScheduleOne.Doors;
 using ScheduleOne.Map;
@@ -51,9 +53,14 @@ namespace BetterSewerKeys
                 return;
             }
 
-            var allDoors = Object.FindObjectsOfType<SewerDoorController>();
+            // Find all SewerDoorController instances, including inactive ones
+            var allDoors = Object.FindObjectsOfType<SewerDoorController>(includeInactive: true);
             Utils.ModLogger.Info($"BetterSewerKeysManager: Found {allDoors.Length} sewer door controllers");
 
+            // Use a HashSet to track which doors we've already processed by their instance ID
+            // This ensures we don't process the same door twice even if FindObjectsOfType returns duplicates
+            var processedDoors = new HashSet<SewerDoorController>();
+            
             _entranceMap.Clear();
             _doorToEntranceMap.Clear();
             _nextEntranceID = 0;
@@ -62,6 +69,15 @@ namespace BetterSewerKeys
             {
                 if (door == null)
                     continue;
+                
+                // Skip if we've already processed this door instance
+                if (processedDoors.Contains(door))
+                {
+                    Utils.ModLogger.Debug($"BetterSewerKeysManager: Skipping duplicate door instance: {door.gameObject.name} at {door.transform.position}");
+                    continue;
+                }
+                
+                processedDoors.Add(door);
 
                 int entranceID = _nextEntranceID++;
                 _entranceMap[entranceID] = door;
@@ -72,12 +88,36 @@ namespace BetterSewerKeys
                 {
                     _saveData.UnlockedEntrances[entranceID] = false;
                 }
+                
+                // Initialize other dictionaries if not present
+                if (!_saveData.KeyLocationIndices.ContainsKey(entranceID))
+                {
+                    _saveData.KeyLocationIndices[entranceID] = -1;
+                }
+                
+                if (!_saveData.KeyPossessorIndices.ContainsKey(entranceID))
+                {
+                    _saveData.KeyPossessorIndices[entranceID] = -1;
+                }
+                
+                if (!_saveData.IsRandomWorldKeyCollected.ContainsKey(entranceID))
+                {
+                    _saveData.IsRandomWorldKeyCollected[entranceID] = false;
+                }
 
                 Utils.ModLogger.Debug(
-                    $"BetterSewerKeysManager: Registered entrance {entranceID} for door {door.gameObject.name}");
+                    $"BetterSewerKeysManager: Registered entrance {entranceID} for door {door.gameObject.name} at position {door.transform.position}");
             }
 
             Utils.ModLogger.Info($"BetterSewerKeysManager: Discovered {_entranceMap.Count} entrances");
+            
+            // Trigger save after discovering all entrances to ensure dictionaries are initialized
+            // Only save if we actually discovered new entrances
+            if (_saveData != null && _entranceMap.Count > 0)
+            {
+                Utils.ModLogger.Debug($"BetterSewerKeysManager: Triggering save after discovering {_entranceMap.Count} entrances");
+                BetterSewerKeysSave.RequestGameSave();
+            }
         }
 
         /// <summary>
@@ -266,6 +306,12 @@ namespace BetterSewerKeys
 
             Utils.ModLogger.Info(
                 $"BetterSewerKeysManager: Assigned key distribution for {_entranceMap.Count} entrances");
+            
+            // Trigger save after assigning key distribution
+            if (_saveData != null)
+            {
+                BetterSewerKeysSave.RequestGameSave();
+            }
         }
 
         private void ShuffleList<T>(List<T> list)
