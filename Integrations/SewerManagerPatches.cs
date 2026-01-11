@@ -452,7 +452,7 @@ namespace BetterSewerKeys.Integrations
                         var possessor = __instance.SewerKeyPossessors[possessorIndex];
                         if (possessor?.NPC != null && possessor.NPC.Inventory != null)
                         {
-                            if (possessor.NPC.Inventory._GetItemAmount(__instance.SewerKeyItem.ID) == 0)
+                            if (possessor.NPC.Inventory.GetIdenticalItemAmount(__instance.SewerKeyItem.GetDefaultInstance()) == 0)
                             {
                                 possessor.NPC.Inventory.InsertItem(__instance.SewerKeyItem.GetDefaultInstance());
                                 ModLogger.Debug($"Ensured possessor {possessorIndex} has key for entrance {entranceID}");
