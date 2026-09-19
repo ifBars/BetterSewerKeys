@@ -332,7 +332,12 @@ namespace BetterSewerKeys.Integrations
                                 int locationIndex = saveData.GetKeyLocationIndex(entranceID);
                                 if (locationIndex >= 0 && locationIndex < __instance.RandomSewerKeyLocations.Length)
                                 {
+#if MONO
+                                    AccessTools.Method(typeof(SewerManager), "SetSewerKeyLocation")
+                                        .Invoke(__instance, new object?[] { null, locationIndex });
+#else
                                     __instance.SetSewerKeyLocation(null, locationIndex);
+#endif
                                     __instance.RandomWorldSewerKeyPickup.gameObject.SetActive(true);
                                     ModLogger.Debug($"SewerManager.Load: Re-enabled key pickup for entrance {entranceID}");
                                 }
@@ -452,7 +457,7 @@ namespace BetterSewerKeys.Integrations
                         var possessor = __instance.SewerKeyPossessors[possessorIndex];
                         if (possessor?.NPC != null && possessor.NPC.Inventory != null)
                         {
-                            if (possessor.NPC.Inventory._GetItemAmount(__instance.SewerKeyItem.ID) == 0)
+                            if (possessor.NPC.Inventory.GetFirstItem(__instance.SewerKeyItem.ID) == null)
                             {
                                 possessor.NPC.Inventory.InsertItem(__instance.SewerKeyItem.GetDefaultInstance());
                                 ModLogger.Debug($"Ensured possessor {possessorIndex} has key for entrance {entranceID}");
