@@ -28,7 +28,7 @@
 	</PropertyGroup>
 
 	<PropertyGroup>
-		<UsePublicized>true</UsePublicized>
+		<UsePublicized>false</UsePublicized>
 	</PropertyGroup>
 
 	<ItemGroup Condition="'$(Configuration)' == 'Mono' and '$(UsePublicized)' == 'true'">
@@ -40,6 +40,9 @@
 	<ItemGroup Condition="'$(Configuration)' == 'Mono' and '$(UsePublicized)' != 'true'">
 		<Reference Include="Assembly-CSharp">
 			<HintPath>$(ManagedPath)\Assembly-CSharp.dll</HintPath>
+		</Reference>
+		<Reference Include="ScheduleOne.Core">
+			<HintPath>$(ManagedPath)\ScheduleOne.Core.dll</HintPath>
 		</Reference>
 	</ItemGroup>
 
@@ -516,6 +519,9 @@
 		</Reference>
 		<Reference Include="Assembly-CSharp" Condition="'$(Configuration)'=='Il2cpp'">
 			<HintPath>$(ManagedPath)\Assembly-CSharp.dll</HintPath>
+		</Reference>
+		<Reference Include="Il2CppScheduleOne.Core">
+			<HintPath>$(ManagedPath)\Il2CppScheduleOne.Core.dll</HintPath>
 		</Reference>
 		<Reference Include="Il2CppAstarPathfindingProject">
 			<HintPath>$(ManagedPath)\Il2CppAstarPathfindingProject.dll</HintPath>

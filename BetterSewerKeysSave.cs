@@ -5,6 +5,7 @@ using S1API.Saveables;
 using UnityEngine;
 using MelonLoader;
 using S1API.GameTime;
+using HarmonyLib;
 #if MONO
 using ScheduleOne.Map;
 using ScheduleOne.DevUtilities;
@@ -170,7 +171,12 @@ namespace BetterSewerKeys
                 SetKeyLocationIndex(selectedEntranceID, randomLocationIndex);
 
                 // Move the pickup to the new location and enable it
+#if MONO
+                AccessTools.Method(typeof(SewerManager), "SetSewerKeyLocation")
+                    .Invoke(sewerManager, new object?[] { null, randomLocationIndex });
+#else
                 sewerManager.SetSewerKeyLocation(null, randomLocationIndex);
+#endif
                 sewerManager.RandomWorldSewerKeyPickup.gameObject.SetActive(true);
 
                 Utils.ModLogger.Info($"BetterSewerKeys: Moved random key pickup to new location {randomLocationIndex} for entrance {selectedEntranceID} on day pass");

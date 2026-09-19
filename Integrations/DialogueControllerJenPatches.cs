@@ -24,6 +24,15 @@ namespace BetterSewerKeys.Integrations
     [HarmonyPatch]
     public static class DialogueControllerJenPatches
     {
+#if MONO
+        private static readonly System.Reflection.FieldInfo NpcField = AccessTools.Field(typeof(DialogueController), "npc");
+
+        private static ScheduleOne.NPCs.NPC GetNpc(DialogueController controller)
+        {
+            return (ScheduleOne.NPCs.NPC)NpcField.GetValue(controller);
+        }
+#endif
+
         /// <summary>
         /// Patch CanBuyKey to check if there are any locked entrances
         /// </summary>
@@ -58,7 +67,12 @@ namespace BetterSewerKeys.Integrations
                 }
 
                 // Still check relationship requirement from original method
-                if (__instance.npc.RelationData.RelationDelta < __instance.MinRelationToBuyKey)
+#if MONO
+                var npc = GetNpc(__instance);
+#else
+                var npc = __instance.npc;
+#endif
+                if (npc.RelationData.RelationDelta < __instance.MinRelationToBuyKey)
                 {
                     invalidReason = "'" + RelationshipCategory.GetCategory(__instance.MinRelationToBuyKey).ToString() + "' relationship required";
                     __result = false;
@@ -124,7 +138,12 @@ namespace BetterSewerKeys.Integrations
                 NetworkSingleton<MoneyManager>.Instance.ChangeCashBalance(0f - __instance.KeyItem.BasePurchasePrice, visualizeChange: true, playCashSound: true);
                 
                 // Give cash to NPC
-                __instance.npc.Inventory.InsertItem(NetworkSingleton<MoneyManager>.Instance.GetCashInstance(__instance.KeyItem.BasePurchasePrice));
+#if MONO
+                var npc = GetNpc(__instance);
+#else
+                var npc = __instance.npc;
+#endif
+                npc.Inventory.InsertItem(NetworkSingleton<MoneyManager>.Instance.GetCashInstance(__instance.KeyItem.BasePurchasePrice));
                 
                 // Give player the sewer key item (same item for all entrances, but tracks which entrance it unlocks via context)
                 // The key will unlock the first locked entrance when used
